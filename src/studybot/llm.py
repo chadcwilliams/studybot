@@ -5,7 +5,7 @@ from __future__ import annotations
 from groq import Groq
 
 from studybot.config import settings
-from studybot.rag import RetrievedChunk
+from studybot.rag import RetrievedChunk, simplify_location
 
 SYSTEM_PROMPT_TEMPLATE = """You are Study Bot, a helpful teaching assistant for \
 {course_name}. \
@@ -26,6 +26,10 @@ a single point.
 (a date, a number, a name) — not for restating the question as a heading.
 - Keep the whole answer short. Mention which part of the course material it came \
 from in one short trailing note, not as a heading.
+- Never mention internal identifiers like row numbers, column numbers, or chunk \
+labels (e.g. "row 28", "table 4 column 2") in your answer — a student has no idea \
+what those refer to. If you want to reference where something came from, describe \
+it in plain terms instead (e.g. "the course schedule", "the grading breakdown").
 - Exception: if the student explicitly asks for the exact wording, to quote it, \
 or to reproduce something "word for word", quote the retrieved text precisely and \
 completely rather than paraphrasing or summarizing it — this is the instructor's own \
@@ -50,7 +54,7 @@ def _build_context(chunks: list[RetrievedChunk]) -> str:
         return "(No relevant course material was found for this question.)"
     parts = []
     for c in chunks:
-        parts.append(f"[{c.source}, {c.location}]\n{c.text}")
+        parts.append(f"[{c.source} — {simplify_location(c.location)}]\n{c.text}")
     return "\n\n---\n\n".join(parts)
 
 
