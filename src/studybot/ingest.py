@@ -106,12 +106,21 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
             continue
 
         header = rows[0]
-        header_text = " | ".join(header)
+        date_col = next((i for i, h in enumerate(header) if "date" in h.lower()), None)
+
         for ri, row in enumerate(rows[1:], start=2):
-            row_text = " | ".join(row)
-            if not row_text.strip(" |"):
+            # Build a natural "label: value" description using only the
+            # non-empty cells in THIS row, instead of always repeating the
+            # full header line. That header repetition was the problem: with
+            # it, all 27 rows of a schedule table carry faint similarity to
+            # any query mentioning a column name (like "due"), even rows
+            # that have nothing due — drowning out the rows that actually
+            # matter. Omitting empty cells means a row only "sounds like"
+            # what it actually contains.
+            pairs = [f"{header[i]}: {row[i]}" for i in range(len(row)) if row[i].strip()]
+            if not pairs:
                 continue
-            out.append((f"{header_text}\n{row_text}", f"table {ti}, row {ri}"))
+            out.append((", ".join(pairs), f"table {ti}, row {ri}"))
 
         # A long schedule table with many near-identical rows (same columns,
         # slightly different dates/topics) is hard for embedding search to
@@ -119,29 +128,39 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
         # by one word, which is too weak a signal to reliably rank near the
         # top for a question like "when are the assignments due". If a
         # column's header suggests it marks deadlines, build one consolidated
-        # chunk listing every non-empty entry in that column together — a
-        # single dense, unambiguous chunk beats hoping semantic search finds
+        # chunk listing every non-empty entry in that column as a plain
+        # sentence — natural phrasing matches how students actually ask,
+        # and one dense, unambiguous chunk beats hoping semantic search finds
         # all the scattered needle rows on its own.
         due_col = next(
             (i for i, h in enumerate(header) if any(kw in h.lower() for kw in ("due", "deadline"))),
             None,
         )
         if due_col is not None:
-            entries = []
+            sentences = []
             for row in rows[1:]:
                 value = row[due_col].strip()
                 if not value:
                     continue
-                context = ", ".join(
+                date_val = row[date_col].strip() if date_col is not None else ""
+                other_pairs = [
                     f"{header[i]}: {row[i]}"
                     for i in range(len(row))
-                    if i != due_col and row[i].strip()
-                )
-                entries.append(f"{value} — {context}")
-            if entries:
-                due_header = header[due_col]
-                summary = f"{due_header}:\n" + "\n".join(entries)
-                out.append((summary, f"table {ti} — {due_header.strip()} (summary)"))
+                    if i not in (due_col, date_col) and row[i].strip()
+                ]
+                other_context = ", ".join(other_pairs)
+                if date_val:
+                    sentence = f"{value} is due on {date_val}"
+                    if other_context:
+                        sentence += f" ({other_context})"
+                    sentence += "."
+                else:
+                    sentence = f"{value} — {other_context}." if other_context else f"{value}."
+                sentences.append(sentence)
+            if sentences:
+                due_header = header[due_col].strip()
+                summary = f"Full list of everything under \"{due_header}\":\n" + "\n".join(sentences)
+                out.append((summary, f"table {ti} — {due_header} (summary)"))
 
     return out
 
