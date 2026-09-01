@@ -76,9 +76,50 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
     doc = DocxDocument(path)
     out = []
 
-    full_text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-    if full_text.strip():
-        out.append((full_text, "document text"))
+    # Split the narrative text into sections at heading boundaries, instead
+    # of joining every paragraph into one giant blob. A single ~19,000-char
+    # blob gets sliced later purely by raw character count (chunk_text),
+    # with no regard for where one policy ends and another begins — the same
+    # problem we already fixed for tables, just showing up in prose instead.
+    #
+    # Word's "Heading" styles are the obvious signal to split on, but some
+    # documents apply a heading style to body paragraphs too (not just their
+    # titles) — treating every Heading-styled paragraph as a new, empty
+    # section wipes that content out rather than just misplacing it. So a
+    # paragraph only counts as a real heading if it also looks like one:
+    # short, and not ending in sentence-final punctuation. A body paragraph
+    # that happens to carry a Heading style almost never satisfies both.
+    def _is_real_heading(text: str, style_name: str) -> bool:
+        if not style_name.startswith("Heading"):
+            return False
+        return len(text) <= 80 and not text.rstrip().endswith((".", "!", "?"))
+
+    sections: list[tuple[str, list[str]]] = []
+    current_heading = "Introduction"
+    current_paras: list[str] = []
+
+    def flush() -> None:
+        if current_paras:
+            sections.append((current_heading, list(current_paras)))
+
+    for p in doc.paragraphs:
+        text = p.text.strip()
+        if not text:
+            continue
+        if _is_real_heading(text, p.style.name):
+            flush()
+            current_heading = text
+            current_paras = []
+        else:
+            current_paras.append(text)
+    flush()
+
+    for heading, paras in sections:
+        body = "\n".join(paras)
+        if not body.strip():
+            continue
+        section_text = body if heading == "Introduction" else f"{heading}\n{body}"
+        out.append((section_text, f"document text — {heading[:60]}"))
 
     # Tables (grading breakdowns, exam schedules, etc.) live in doc.tables,
     # separate from doc.paragraphs. We chunk them row-by-row — each row
