@@ -1,0 +1,22 @@
+# Environment / secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Course materials & generated vector DB (don't commit copyrighted/private content)
+data/materials/*
+!data/materials/.gitkeep
+data/vector_index/*
+!data/vector_index/.gitkeep
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/

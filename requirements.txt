@@ -1,0 +1,19 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-dotenv==1.0.1
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# Retrieval (embeddings only — vector search is a local numpy-based store, see src/studybot/store.py)
+sentence-transformers==3.1.1
+
+# Document parsing
+python-pptx==1.0.2
+pypdf==5.0.1
+python-docx==1.1.2
+
+# LLM
+groq==0.11.0
+
+# Rate limiting / HTTP
+httpx==0.27.2

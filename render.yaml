@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: studybot-api
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt && python -m studybot.ingest"
+    startCommand: "uvicorn studybot.main:app --host 0.0.0.0 --port $PORT --app-dir src"
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: PYTHONPATH
+        value: src

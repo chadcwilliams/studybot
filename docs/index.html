@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Course Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <span class="mark">§</span>
+      <div class="titles">
+        <h1>Course Assistant</h1>
+        <p id="course-subtitle">Ask about lectures, readings, or the syllabus</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="chat-shell">
+    <div id="messages" class="messages" aria-live="polite">
+      <div class="msg msg-bot">
+        <p>Hi — I'm the course assistant. I can answer questions using the
+        slides and syllabus for this class. What would you like to know?</p>
+      </div>
+    </div>
+
+    <form id="chat-form" class="composer">
+      <textarea
+        id="question"
+        placeholder="Ask a question about the course…"
+        rows="1"
+        maxlength="2000"
+        required
+      ></textarea>
+      <button type="submit" id="send-btn">Ask</button>
+    </form>
+    <p class="disclaimer">Answers are generated from course materials and may be incomplete — always confirm important details with your instructor.</p>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
