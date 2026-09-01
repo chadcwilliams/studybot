@@ -99,6 +99,27 @@ class Retriever:
 retriever = Retriever()
 
 
+def simplify_location(location: str) -> str:
+    """Collapses internal chunk-tracking detail (row/column numbers) into a
+    label that means something outside the ingestion code, e.g.
+    "table 3, row 12" and "table 3, row 28" both become "Table 3" — the
+    specific row isn't meaningful to a student or to the model, but which
+    table is. Used both for the sources footer and for the labels shown to
+    the model itself, since the model was previously echoing raw internal
+    labels like "row 28" straight into answers.
+    """
+    if location == "document text":
+        return "General syllabus text"
+    if location.startswith("document text — "):
+        return location.removeprefix("document text — ")
+    import re
+
+    match = re.match(r"table (\d+)", location)
+    if match:
+        return f"Table {match.group(1)}"
+    return location
+
+
 def merge_unique(*chunk_lists: list[RetrievedChunk], limit: int) -> list[RetrievedChunk]:
     """Combines multiple retrieval passes (e.g. a standalone-question search
     and a history-augmented search), dropping duplicates and keeping each
