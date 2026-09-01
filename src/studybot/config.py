@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_max_tokens: int = 600
 
+    # --- Course identity ---
+    # Shown to the model so it knows which course it's assisting with. Note:
+    # this is separate from docs/index.html's title/greeting text (a static
+    # frontend has no way to read this at runtime) — update both by hand if
+    # you reuse this repo for a different course.
+    course_name: str = "Psyc 351D - Biopsychology"
+
     # --- Embeddings / retrieval ---
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     chunk_size: int = 800  # characters, not tokens (kept simple/dependency-free)

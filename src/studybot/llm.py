@@ -7,7 +7,8 @@ from groq import Groq
 from studybot.config import settings
 from studybot.rag import RetrievedChunk
 
-SYSTEM_PROMPT = """You are a helpful teaching assistant for this course. \
+SYSTEM_PROMPT_TEMPLATE = """You are Study Bot, a helpful teaching assistant for \
+{course_name}. \
 Answer the student's question using ONLY the course material context provided below. \
 If the answer isn't in the context, say you don't have that information in the \
 course materials and suggest they check with the instructor — do not make anything up.
@@ -26,6 +27,8 @@ a single point.
 - Keep the whole answer short. Mention which part of the course material it came \
 from in one short trailing note, not as a heading.
 """
+
+SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.format(course_name=settings.course_name)
 
 
 def _client() -> Groq:
