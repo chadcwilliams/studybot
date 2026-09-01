@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from groq import Groq
 
 from studybot.config import settings
@@ -31,10 +33,12 @@ labels (e.g. "row 28", "table 4 column 2") in your answer — a student has no i
 what those refer to. If you want to reference where something came from, describe \
 it in plain terms instead (e.g. "the course schedule", "the grading breakdown").
 - For mathematical notation (equations, formulas, statistical notation), use LaTeX \
-with $ for inline math and $$ for standalone/display equations — do not use square \
-brackets for this. Write correct, complete LaTeX syntax (e.g. proper \\frac{}{} for \
-fractions, _{} for subscripts, ^{} for exponents) rather than approximating it with \
-punctuation.
+with $ for inline math and $$ for standalone/display equations — never bare square \
+brackets, and never \\[ \\] or \\( \\). Write correct, complete LaTeX syntax (proper \
+\\frac{}{} for fractions, _{} for subscripts, ^{} for exponents), not an \
+approximation using semicolons or commas.
+  Example of correctly formatted math: "The sample mean is $\\bar{x} = \\frac{\\sum x_i}{n}$. \
+As a standalone equation: $$SD = \\sqrt{\\frac{\\sum (x_i - \\bar{x})^2}{n-1}}$$"
 - Exception: if the student explicitly asks for the exact wording, to quote it, \
 or to reproduce something "word for word", quote the retrieved text precisely and \
 completely rather than paraphrasing or summarizing it — this is the instructor's own \
@@ -43,6 +47,18 @@ avoid or shorten.
 """
 
 SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.replace("__COURSE_NAME__", settings.course_name)
+
+# The model doesn't reliably follow the "$ / $$" formatting instruction above
+# every time — it's sometimes used bare `[ ... ]` (no backslash) for a
+# display equation instead, which none of the frontend's configured math
+# delimiters recognize, so it just shows up as literal text. Rather than
+# rely on prompt wording alone for something this visible, normalize that
+# specific pattern server-side as a safety net.
+_BARE_BRACKET_MATH = re.compile(r"^[ \t]*\[[ \t]*$\n(.*?)\n^[ \t]*\][ \t]*$", re.MULTILINE | re.DOTALL)
+
+
+def _normalize_math_delimiters(text: str) -> str:
+    return _BARE_BRACKET_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
 
 
 def _client() -> Groq:
@@ -86,4 +102,4 @@ def answer_question(
         max_tokens=settings.llm_max_tokens,
         messages=messages,
     )
-    return response.choices[0].message.content.strip()
+    return _normalize_math_delimiters(response.choices[0].message.content.strip())
