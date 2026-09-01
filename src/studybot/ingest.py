@@ -24,10 +24,8 @@ from docx import Document as DocxDocument
 from studybot.config import settings
 from studybot.store import StoredChunk, VectorStore
 
-# sentence-transformers is imported lazily inside run() below. It's heavy
-# (pulls in torch), and keeping it out of the module-level imports means the
-# text-extraction functions above can be unit-tested or reused without
-# installing the full ML stack.
+# fastembed is imported lazily inside run() below, so the text-extraction
+# functions above can be unit-tested or reused without downloading models.
 
 
 @dataclass
@@ -139,7 +137,7 @@ def build_chunks(materials_dir: Path, chunk_size: int, chunk_overlap: int) -> li
 # --------------------------------------------------------------------------
 
 def run() -> None:
-    from sentence_transformers import SentenceTransformer
+    from fastembed import TextEmbedding
 
     print(f"Reading materials from: {settings.materials_dir}")
     chunks = build_chunks(settings.materials_dir, settings.chunk_size, settings.chunk_overlap)
@@ -149,12 +147,12 @@ def run() -> None:
         return
 
     print(f"Built {len(chunks)} chunks. Loading embedding model "
-          f"'{settings.embedding_model}' (first run downloads it, ~80MB)...")
-    model = SentenceTransformer(settings.embedding_model)
+          f"'{settings.embedding_model}' (first run downloads it)...")
+    model = TextEmbedding(settings.embedding_model)
 
     print("Embedding chunks...")
     texts = [c.text for c in chunks]
-    embeddings = model.encode(texts, show_progress_bar=True, batch_size=32).tolist()
+    embeddings = [e.tolist() for e in model.embed(texts)]
 
     store = VectorStore(settings.index_dir)
     stored_chunks = [StoredChunk(text=c.text, source=c.source, location=c.location) for c in chunks]

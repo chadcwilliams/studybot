@@ -10,7 +10,7 @@ from studybot.config import settings
 from studybot.store import VectorStore
 
 if TYPE_CHECKING:
-    from sentence_transformers import SentenceTransformer
+    from fastembed import TextEmbedding
 
 
 @dataclass
@@ -28,14 +28,14 @@ class Retriever:
     """
 
     def __init__(self) -> None:
-        self._model: "SentenceTransformer | None" = None
+        self._model: "TextEmbedding | None" = None
         self._store: VectorStore | None = None
 
     def _ensure_loaded(self) -> None:
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
+            from fastembed import TextEmbedding
 
-            self._model = SentenceTransformer(settings.embedding_model)
+            self._model = TextEmbedding(settings.embedding_model)
         if self._store is None:
             store = VectorStore(settings.index_dir)
             store.load()  # raises FileNotFoundError with a clear message if missing
@@ -45,7 +45,10 @@ class Retriever:
         self._ensure_loaded()
         top_k = top_k or settings.top_k
 
-        query_embedding = self._model.encode([question])[0].tolist()
+        # query_embed() (vs. embed()) applies the model's recommended query-side
+        # instruction/prefix internally, which matters for asymmetric retrieval
+        # models like BGE — queries and passages are embedded slightly differently.
+        query_embedding = next(iter(self._model.query_embed(question))).tolist()
         results = self._store.query(query_embedding, top_k=top_k)
 
         return [

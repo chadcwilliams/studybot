@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 600
 
     # --- Embeddings / retrieval ---
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
     chunk_size: int = 800  # characters, not tokens (kept simple/dependency-free)
     chunk_overlap: int = 150
     top_k: int = 4

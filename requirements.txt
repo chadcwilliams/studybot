@@ -4,8 +4,10 @@ python-dotenv==1.0.1
 pydantic==2.9.2
 pydantic-settings==2.5.2
 
-# Retrieval (embeddings only — vector search is a local numpy-based store, see src/studybot/store.py)
-sentence-transformers==3.1.1
+# Retrieval — lightweight ONNX-based embeddings (no torch/sentence-transformers,
+# which need 500MB+ of RAM just to load and don't fit Render's free 512MB tier).
+# Vector search itself is a local numpy-based store, see src/studybot/store.py
+fastembed==0.8.0
 
 # Document parsing
 python-pptx==1.0.2
