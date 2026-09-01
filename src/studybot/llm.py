@@ -8,7 +8,7 @@ from studybot.config import settings
 from studybot.rag import RetrievedChunk, simplify_location
 
 SYSTEM_PROMPT_TEMPLATE = """You are Study Bot, a helpful teaching assistant for \
-{course_name}. \
+__COURSE_NAME__. \
 Answer the student's question using ONLY the course material context provided below. \
 If the answer isn't in the context, say you don't have that information in the \
 course materials and suggest they check with the instructor — do not make anything up.
@@ -42,7 +42,7 @@ material, so reproducing it accurately for a student is expected, not something 
 avoid or shorten.
 """
 
-SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.format(course_name=settings.course_name)
+SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.replace("__COURSE_NAME__", settings.course_name)
 
 
 def _client() -> Groq:
