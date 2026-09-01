@@ -97,12 +97,23 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
         if len(rows) == 1:
             # A single-row table is usually several side-by-side categories
             # (e.g. "Exams: 45%" | "Article Summary: 45%" | "Participation:
-            # 2%") stuffed into one row of cells. Joining them into one
-            # chunk lets facts from one category bleed into another when the
-            # model reads it — keep each column as its own chunk instead.
-            for ci, cell_text in enumerate(rows[0], start=1):
-                if cell_text.strip():
-                    out.append((cell_text, f"table {ti}, column {ci}"))
+            # 2%") stuffed into one row of cells. Joining them with " | "
+            # let facts from one category bleed into another, so each
+            # column gets its own chunk — good for narrow questions about
+            # one category.
+            non_empty_cells = [c.strip() for c in rows[0] if c.strip()]
+            for ci, cell_text in enumerate(non_empty_cells, start=1):
+                out.append((cell_text, f"table {ti}, column {ci}"))
+
+            # But a BROAD question ("what's the whole grade breakdown?")
+            # needs all of those columns retrieved together — a much
+            # harder bar than matching one chunk. Add one more chunk with
+            # every column present, separated by blank lines (not " | ")
+            # so categories stay visually distinct and don't get
+            # cross-attributed, while still being answerable from a
+            # single retrieved chunk.
+            if len(non_empty_cells) > 1:
+                out.append(("\n\n".join(non_empty_cells), f"table {ti} (all columns)"))
             continue
 
         header = rows[0]
