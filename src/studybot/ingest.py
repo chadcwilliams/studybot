@@ -95,15 +95,53 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
             continue
 
         if len(rows) == 1:
-            out.append((" | ".join(rows[0]), f"table {ti}"))
+            # A single-row table is usually several side-by-side categories
+            # (e.g. "Exams: 45%" | "Article Summary: 45%" | "Participation:
+            # 2%") stuffed into one row of cells. Joining them into one
+            # chunk lets facts from one category bleed into another when the
+            # model reads it — keep each column as its own chunk instead.
+            for ci, cell_text in enumerate(rows[0], start=1):
+                if cell_text.strip():
+                    out.append((cell_text, f"table {ti}, column {ci}"))
             continue
 
-        header = " | ".join(rows[0])
+        header = rows[0]
+        header_text = " | ".join(header)
         for ri, row in enumerate(rows[1:], start=2):
             row_text = " | ".join(row)
             if not row_text.strip(" |"):
                 continue
-            out.append((f"{header}\n{row_text}", f"table {ti}, row {ri}"))
+            out.append((f"{header_text}\n{row_text}", f"table {ti}, row {ri}"))
+
+        # A long schedule table with many near-identical rows (same columns,
+        # slightly different dates/topics) is hard for embedding search to
+        # pick out of — a row like "Summary 1" differs from its 27 neighbors
+        # by one word, which is too weak a signal to reliably rank near the
+        # top for a question like "when are the assignments due". If a
+        # column's header suggests it marks deadlines, build one consolidated
+        # chunk listing every non-empty entry in that column together — a
+        # single dense, unambiguous chunk beats hoping semantic search finds
+        # all the scattered needle rows on its own.
+        due_col = next(
+            (i for i, h in enumerate(header) if any(kw in h.lower() for kw in ("due", "deadline"))),
+            None,
+        )
+        if due_col is not None:
+            entries = []
+            for row in rows[1:]:
+                value = row[due_col].strip()
+                if not value:
+                    continue
+                context = ", ".join(
+                    f"{header[i]}: {row[i]}"
+                    for i in range(len(row))
+                    if i != due_col and row[i].strip()
+                )
+                entries.append(f"{value} — {context}")
+            if entries:
+                due_header = header[due_col]
+                summary = f"{due_header}:\n" + "\n".join(entries)
+                out.append((summary, f"table {ti} — {due_header.strip()} (summary)"))
 
     return out
 

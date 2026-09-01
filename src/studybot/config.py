@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     chunk_size: int = 800  # characters, not tokens (kept simple/dependency-free)
     chunk_overlap: int = 150
-    top_k: int = 4
+    top_k: int = 6
     max_history_messages: int = 12  # ~6 turns of conversation
 
     # --- Paths ---
