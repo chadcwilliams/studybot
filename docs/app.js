@@ -1,5 +1,5 @@
 // Point this at your deployed backend (Render URL) before publishing.
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL = "https://studybot-api-6m2e.onrender.com/";
 
 const messagesEl = document.getElementById("messages");
 const formEl = document.getElementById("chat-form");
