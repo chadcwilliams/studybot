@@ -18,11 +18,14 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 1600
 
     # --- Course identity ---
-    # Shown to the model so it knows which course it's assisting with. Note:
-    # this is separate from docs/index.html's title/greeting text (a static
-    # frontend has no way to read this at runtime) — update both by hand if
-    # you reuse this repo for a different course.
-    course_name: str = "Psyc 351D - Biopsychology"
+    # Shown to the model so it knows which course it's assisting with.
+    # Override per deployment with a COURSE_NAME environment variable rather
+    # than editing this default — that way the code itself stays identical
+    # across every class's branch/Render service, and only deployment config
+    # differs. (docs/<course>/index.html's title/greeting text is a separate,
+    # unavoidable manual edit per course — a static frontend has no way to
+    # read this Python setting at runtime.)
+    course_name: str = "Your Course Name"
 
     # --- Embeddings / retrieval ---
     embedding_model: str = "BAAI/bge-small-en-v1.5"
@@ -34,6 +37,7 @@ class Settings(BaseSettings):
     # --- Paths ---
     materials_dir: Path = REPO_ROOT / "data" / "materials"
     index_dir: Path = REPO_ROOT / "data" / "vector_index"
+    term_aliases_path: Path = REPO_ROOT / "data" / "term_aliases.json"
 
     # --- Server ---
     allowed_origins: str = "http://localhost:8000"
