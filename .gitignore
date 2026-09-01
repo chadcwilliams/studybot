@@ -11,8 +11,6 @@ build/
 dist/
 
 # Course materials & generated vector DB (don't commit copyrighted/private content)
-data/materials/*
-!data/materials/.gitkeep
 data/vector_index/*
 !data/vector_index/.gitkeep
 
