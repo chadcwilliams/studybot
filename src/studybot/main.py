@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from studybot.cache import answer_cache, rate_limiter
 from studybot.config import settings
 from studybot.llm import answer_question
-from studybot.rag import retriever
+from studybot.rag import merge_unique, retriever
 
 app = FastAPI(title="StudyBot API", version="0.1.0")
 
@@ -77,16 +77,19 @@ def chat(req: ChatRequest) -> ChatResponse:
                    f"in about {wait} seconds.",
         )
 
-    # 3. Retrieve relevant course material. For follow-up questions, fold in
-    # the recent user turns so retrieval searches the actual topic being
-    # discussed, not just the follow-up's own (often topic-less) wording.
-    retrieval_query = question
-    if history:
-        recent_user_turns = [m.content for m in history if m.role == "user"][-2:]
-        retrieval_query = " ".join([*recent_user_turns, question])
-
+    # 3. Retrieve relevant course material. Search twice when there's history:
+    # once with just the new question (catches a clean topic switch, like
+    # asking about exams right after asking about neurons), and once with
+    # recent turns folded in (catches genuine follow-ups like "lay it out in
+    # steps", where the question alone has no topic of its own). Merging the
+    # two avoids having to guess in advance which situation we're in.
     try:
-        chunks = retriever.retrieve(retrieval_query)
+        chunks = retriever.retrieve(question)
+        if history:
+            recent_user_turns = [m.content for m in history if m.role == "user"][-2:]
+            retrieval_query = " ".join([*recent_user_turns, question])
+            contextual_chunks = retriever.retrieve(retrieval_query)
+            chunks = merge_unique(chunks, contextual_chunks, limit=settings.top_k)
     except (RuntimeError, FileNotFoundError) as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001 - misconfiguration, missing deps, etc.

@@ -58,3 +58,18 @@ class Retriever:
 
 
 retriever = Retriever()
+
+
+def merge_unique(*chunk_lists: list[RetrievedChunk], limit: int) -> list[RetrievedChunk]:
+    """Combines multiple retrieval passes (e.g. a standalone-question search
+    and a history-augmented search), dropping duplicates and keeping each
+    chunk's best score, then returns the top `limit` overall.
+    """
+    best: dict[tuple[str, str], RetrievedChunk] = {}
+    for chunks in chunk_lists:
+        for c in chunks:
+            key = (c.source, c.location)
+            if key not in best or c.score > best[key].score:
+                best[key] = c
+    ranked = sorted(best.values(), key=lambda c: c.score, reverse=True)
+    return ranked[:limit]
