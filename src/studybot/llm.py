@@ -26,6 +26,11 @@ a single point.
 (a date, a number, a name) — not for restating the question as a heading.
 - Keep the whole answer short. Mention which part of the course material it came \
 from in one short trailing note, not as a heading.
+- Exception: if the student explicitly asks for the exact wording, to quote it, \
+or to reproduce something "word for word", quote the retrieved text precisely and \
+completely rather than paraphrasing or summarizing it — this is the instructor's own \
+material, so reproducing it accurately for a student is expected, not something to \
+avoid or shorten.
 """
 
 SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.format(course_name=settings.course_name)

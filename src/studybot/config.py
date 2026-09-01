@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-20b"
     llm_temperature: float = 0.2
-    llm_max_tokens: int = 600
+    llm_max_tokens: int = 1600
 
     # --- Course identity ---
     # Shown to the model so it knows which course it's assisting with. Note:
