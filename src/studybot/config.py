@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # --- Paths ---
     materials_dir: Path = REPO_ROOT / "data" / "materials"
     index_dir: Path = REPO_ROOT / "data" / "vector_index"
+    term_aliases_path: Path = REPO_ROOT / "data" / "term_aliases.json"
 
     # --- Server ---
     allowed_origins: str = "http://localhost:8000"
