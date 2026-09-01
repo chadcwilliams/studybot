@@ -1,5 +1,9 @@
-// Point this at your deployed backend (Render URL) before publishing.
-const API_BASE_URL = "https://studybot-api-6m2e.onrender.com";
+// Reads its config from window.STUDYBOT_CONFIG, set by a small inline
+// script in each course's index.html — this file itself is shared across
+// every course (see docs/<course>/index.html), so a fix here reaches every
+// class without needing to copy this file into each course's folder.
+const config = window.STUDYBOT_CONFIG || {};
+const API_BASE_URL = config.apiBaseUrl || "http://localhost:8000";
 const MAX_HISTORY_MESSAGES = 12; // ~6 turns — mirrors the backend's own cap
 
 const messagesEl = document.getElementById("messages");

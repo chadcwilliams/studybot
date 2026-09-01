@@ -236,3 +236,38 @@ body {
 @media (max-width: 480px) {
   .msg { max-width: 92%; }
 }
+
+/* Landing page: course picker */
+.course-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.course-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--paper-raised);
+  text-decoration: none;
+  color: var(--ink);
+  transition: border-color 0.15s ease;
+}
+
+.course-card:hover {
+  border-color: var(--accent);
+}
+
+.course-card-title {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.course-card-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+}
