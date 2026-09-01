@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
@@ -12,7 +11,7 @@ from pydantic import BaseModel, Field
 from studybot.cache import answer_cache, rate_limiter
 from studybot.config import settings
 from studybot.llm import answer_question
-from studybot.rag import RetrievedChunk, merge_unique, retriever
+from studybot.rag import RetrievedChunk, merge_unique, retriever, simplify_location
 
 app = FastAPI(title="StudyBot API", version="0.1.0")
 
@@ -47,28 +46,13 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-def _simplify_location(location: str) -> str:
-    """Collapses internal chunk-tracking detail (row/column numbers) into a
-    label that actually means something to a student, e.g. "table 3, row 12"
-    and "table 3, row 28" both just become "Table 3" — the specific row
-    isn't meaningful to them, but which table is."""
-    if location == "document text":
-        return "General syllabus text"
-    if location.startswith("document text — "):
-        return location.removeprefix("document text — ")
-    match = re.match(r"table (\d+)", location)
-    if match:
-        return f"Table {match.group(1)}"
-    return location
-
-
 def _build_sources(chunks: list[RetrievedChunk]) -> list[str]:
     """Groups sources by file, listing each file once with its distinct
     sections/tables comma-separated, instead of repeating the full filename
     for every single retrieved chunk."""
     grouped: dict[str, set[str]] = {}
     for c in chunks:
-        grouped.setdefault(c.source, set()).add(_simplify_location(c.location))
+        grouped.setdefault(c.source, set()).add(simplify_location(c.location))
     return [f"{source}: {', '.join(sorted(locs))}" for source, locs in sorted(grouped.items())]
 
 
