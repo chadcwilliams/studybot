@@ -1,10 +1,16 @@
 // Point this at your deployed backend (Render URL) before publishing.
 const API_BASE_URL = "https://studybot-api-6m2e.onrender.com";
+const MAX_HISTORY_MESSAGES = 12; // ~6 turns — mirrors the backend's own cap
 
 const messagesEl = document.getElementById("messages");
 const formEl = document.getElementById("chat-form");
 const inputEl = document.getElementById("question");
 const sendBtn = document.getElementById("send-btn");
+
+// Tracks the conversation so follow-ups ("lay it out in steps") are
+// understood in relation to what was already asked, instead of each
+// question being answered in isolation.
+let conversationHistory = [];
 
 function addMessage(html, className) {
   const div = document.createElement("div");
@@ -52,7 +58,7 @@ async function askQuestion(question) {
     const res = await fetch(`${API_BASE_URL}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, history: conversationHistory }),
     });
 
     hideTyping();
@@ -70,6 +76,12 @@ async function askQuestion(question) {
       html += `<div class="sources">Source: ${data.sources.map(escapeHtml).join(", ")}</div>`;
     }
     addMessage(html, "msg-bot");
+
+    conversationHistory.push({ role: "user", content: question });
+    conversationHistory.push({ role: "assistant", content: data.answer });
+    if (conversationHistory.length > MAX_HISTORY_MESSAGES) {
+      conversationHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
+    }
   } catch (e) {
     hideTyping();
     addMessage(

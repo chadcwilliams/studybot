@@ -46,18 +46,27 @@ def _build_context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def answer_question(question: str, chunks: list[RetrievedChunk]) -> str:
+def answer_question(
+    question: str,
+    chunks: list[RetrievedChunk],
+    history: list[dict[str, str]] | None = None,
+) -> str:
     context = _build_context(chunks)
     user_prompt = f"Course material context:\n\n{context}\n\nStudent question: {question}"
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if history:
+        # Prior turns give the model conversational continuity (so "lay it
+        # out in steps" is understood in relation to what was just asked),
+        # without re-injecting a full context block for every past turn.
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_prompt})
 
     client = _client()
     response = client.chat.completions.create(
         model=settings.groq_model,
         temperature=settings.llm_temperature,
         max_tokens=settings.llm_max_tokens,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
+        messages=messages,
     )
     return response.choices[0].message.content.strip()
