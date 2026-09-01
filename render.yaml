@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: studybot-api
+    name: studybot-psyc300a-api
     env: python
     plan: free
     buildCommand: "pip install -r requirements.txt && python -m studybot.ingest"
@@ -10,7 +10,9 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: COURSE_NAME
+        value: "Psyc 300A - Statistics I"
       - key: PYTHONPATH
         value: src
-      - key: PYTHON_VERSION 
-        value: 3.12.7 
+      - key: PYTHON_VERSION
+        value: 3.12.7
