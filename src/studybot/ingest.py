@@ -81,15 +81,29 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
         out.append((full_text, "document text"))
 
     # Tables (grading breakdowns, exam schedules, etc.) live in doc.tables,
-    # completely separate from doc.paragraphs — easy to silently miss.
-    for i, table in enumerate(doc.tables, start=1):
-        rows = []
-        for row in table.rows:
-            row_text = " | ".join(cell.text.strip() for cell in row.cells)
-            if row_text.strip(" |"):
-                rows.append(row_text)
-        if rows:
-            out.append(("\n".join(rows), f"table {i}"))
+    # separate from doc.paragraphs. We chunk them row-by-row — each row
+    # paired with its header row — rather than joining the whole table into
+    # one blob. A long table joined into one string can get sliced by the
+    # generic character-based chunker at an arbitrary point, severing a fact
+    # (e.g. "Exam 1" from its date "Oct 15") across two separate chunks.
+    # Row-level chunks are small enough to never get split, and keeping the
+    # header attached preserves what each column means.
+    for ti, table in enumerate(doc.tables, start=1):
+        rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+        rows = [r for r in rows if any(c for c in r)]
+        if not rows:
+            continue
+
+        if len(rows) == 1:
+            out.append((" | ".join(rows[0]), f"table {ti}"))
+            continue
+
+        header = " | ".join(rows[0])
+        for ri, row in enumerate(rows[1:], start=2):
+            row_text = " | ".join(row)
+            if not row_text.strip(" |"):
+                continue
+            out.append((f"{header}\n{row_text}", f"table {ti}, row {ri}"))
 
     return out
 
