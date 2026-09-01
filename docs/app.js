@@ -39,6 +39,24 @@ function renderMarkdown(str) {
   return DOMPurify.sanitize(rawHtml);
 }
 
+// Renders LaTeX math (KaTeX) inside an already-inserted DOM element. Run
+// this AFTER the element's HTML is set, not as part of the Markdown/sanitize
+// step — it walks real text nodes looking for delimiters, so it needs the
+// final DOM to exist first. No-ops safely if KaTeX's script failed to load.
+function renderMathIn(el) {
+  if (window.renderMathInElement) {
+    renderMathInElement(el, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "$", right: "$", display: false },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false },
+      ],
+      throwOnError: false,
+    });
+  }
+}
+
 function showTyping() {
   const div = document.createElement("div");
   div.className = "typing";
@@ -79,7 +97,8 @@ async function askQuestion(question) {
     if (data.sources && data.sources.length) {
       html += `<div class="sources">Source: ${data.sources.map(escapeHtml).join(", ")}</div>`;
     }
-    addMessage(html, "msg-bot");
+    const botDiv = addMessage(html, "msg-bot");
+    renderMathIn(botDiv);
 
     conversationHistory.push({ role: "user", content: question });
     conversationHistory.push({ role: "assistant", content: data.answer });
