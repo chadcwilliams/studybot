@@ -59,8 +59,8 @@ def chat(req: ChatRequest) -> ChatResponse:
     # 3. Retrieve relevant course material.
     try:
         chunks = retriever.retrieve(question)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
+    except (RuntimeError, FileNotFoundError) as e:
+         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:  # noqa: BLE001 - misconfiguration, missing deps, etc.
         raise HTTPException(
             status_code=503,
