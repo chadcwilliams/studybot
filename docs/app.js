@@ -21,6 +21,14 @@ function escapeHtml(str) {
   return d.innerHTML;
 }
 
+// Renders LLM output as Markdown (tables, bold, lists, etc.) and sanitizes
+// the result before it touches the DOM — the model's output isn't fully
+// trusted input, so this matters even though prompts constrain it.
+function renderMarkdown(str) {
+  const rawHtml = marked.parse(str, { breaks: true });
+  return DOMPurify.sanitize(rawHtml);
+}
+
 function showTyping() {
   const div = document.createElement("div");
   div.className = "typing";
@@ -57,7 +65,7 @@ async function askQuestion(question) {
     }
 
     const data = await res.json();
-    let html = `<p>${escapeHtml(data.answer)}</p>`;
+    let html = renderMarkdown(data.answer);
     if (data.sources && data.sources.length) {
       html += `<div class="sources">Source: ${data.sources.map(escapeHtml).join(", ")}</div>`;
     }
