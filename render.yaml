@@ -12,3 +12,5 @@ services:
         sync: false
       - key: PYTHONPATH
         value: src
+      - key: PYTHON_VERSION 
+        value: 3.12.7 
