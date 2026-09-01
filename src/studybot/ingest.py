@@ -74,8 +74,24 @@ def extract_pdf(path: Path) -> list[tuple[str, str]]:
 
 def extract_docx(path: Path) -> list[tuple[str, str]]:
     doc = DocxDocument(path)
+    out = []
+
     full_text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-    return [(full_text, "document")] if full_text.strip() else []
+    if full_text.strip():
+        out.append((full_text, "document text"))
+
+    # Tables (grading breakdowns, exam schedules, etc.) live in doc.tables,
+    # completely separate from doc.paragraphs — easy to silently miss.
+    for i, table in enumerate(doc.tables, start=1):
+        rows = []
+        for row in table.rows:
+            row_text = " | ".join(cell.text.strip() for cell in row.cells)
+            if row_text.strip(" |"):
+                rows.append(row_text)
+        if rows:
+            out.append(("\n".join(rows), f"table {i}"))
+
+    return out
 
 
 EXTRACTORS = {
