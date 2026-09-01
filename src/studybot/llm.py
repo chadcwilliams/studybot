@@ -30,6 +30,11 @@ from in one short trailing note, not as a heading.
 labels (e.g. "row 28", "table 4 column 2") in your answer — a student has no idea \
 what those refer to. If you want to reference where something came from, describe \
 it in plain terms instead (e.g. "the course schedule", "the grading breakdown").
+- For mathematical notation (equations, formulas, statistical notation), use LaTeX \
+with $ for inline math and $$ for standalone/display equations — do not use square \
+brackets for this. Write correct, complete LaTeX syntax (e.g. proper \\frac{}{} for \
+fractions, _{} for subscripts, ^{} for exponents) rather than approximating it with \
+punctuation.
 - Exception: if the student explicitly asks for the exact wording, to quote it, \
 or to reproduce something "word for word", quote the retrieved text precisely and \
 completely rather than paraphrasing or summarizing it — this is the instructor's own \
