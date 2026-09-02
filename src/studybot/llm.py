@@ -62,13 +62,16 @@ avoid or shorten.
 
 SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.replace("__COURSE_NAME__", settings.course_name)
 
-# The model doesn't reliably follow the "$ / $$" formatting instruction above
-# every time — it's sometimes used bare `[ ... ]` (no backslash) for a
-# display equation instead, which none of the frontend's configured math
-# delimiters recognize, so it just shows up as literal text. Rather than
-# rely on prompt wording alone for something this visible, normalize that
-# specific pattern server-side as a safety net.
-_BARE_BRACKET_MATH = re.compile(r"^[ \t]*\[[ \t]*$\n(.*?)\n^[ \t]*\][ \t]*$", re.MULTILINE | re.DOTALL)
+# A line containing only "[" (with optional whitespace) is the strict
+# signal for "this bracket starts a standalone equation block" — but a
+# markdown list bullet before it ("- [") breaks that strict match, since the
+# line then contains "- [" rather than just "[". Tolerating a short leading
+# prefix (whitespace, and optionally a list marker) catches that case too,
+# while still requiring the bracket be immediately followed by a line break
+# so an ordinary mid-sentence "[" is never touched.
+_BARE_BRACKET_MATH = re.compile(
+    r"^[ \t]*(?:[-*•]\s*)?\[[ \t]*$\n(.*?)\n^[ \t]*\][ \t]*$", re.MULTILINE | re.DOTALL
+)
 
 # The model has repeatedly inserted stray commas immediately inside LaTeX
 # braces (e.g. "\frac{SS}{,n-1,}" instead of "\frac{SS}{n-1}") — a comma
@@ -100,6 +103,21 @@ _MATH_BLOCK = re.compile(r"(\${1,2})(.*?)\1", re.DOTALL)
 # sub/superscript brace) so a genuine code snippet is never touched.
 _BACKTICK_MATH = re.compile(r"`([^`\n]*(?:\\[a-zA-Z]+|[_^]\{)[^`\n]*)`")
 
+# The model also wraps small inline equations in plain parentheses instead
+# of $ — "(SD = 2.9700)", "(\bar{x}=5.0000)". This is riskier to normalize
+# than backticks or brackets: parentheses are extremely common in ordinary
+# prose, and something like "(s)" is a normal English plural marker
+# ("student(s)") far more often than a stray variable reference. So this
+# only converts parenthetical content that's unambiguously math: either it
+# contains a LaTeX command (same signal as backticks), or its ENTIRE
+# content is just "short token = number" with nothing else — a shape that
+# essentially never occurs in ordinary prose. A bare symbol reference with
+# no "=" and no backslash, like "(n-1)", is deliberately left alone rather
+# than risk a false positive.
+_PAREN_MATH = re.compile(
+    r"\((\\[a-zA-Z]+[^()\n]*|[A-Za-z][A-Za-z0-9_^{}\\]{0,20}\s*=\s*-?[\d.]+)\)"
+)
+
 
 def _clean_math_content(latex: str) -> str:
     latex = re.sub(r"\s*\n\s*", " ", latex).strip()
@@ -117,6 +135,7 @@ def _clean_math_content(latex: str) -> str:
 
 def _normalize_math_delimiters(text: str) -> str:
     text = _BACKTICK_MATH.sub(lambda m: f"$${m.group(1).strip()}$$", text)
+    text = _PAREN_MATH.sub(lambda m: f"${m.group(1).strip()}$", text)
     text = _BARE_BRACKET_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
     text = _STRAY_BRACE_COMMA.sub(lambda m: "{" if m.group(0).startswith("{") else "}", text)
     text = _MATH_BLOCK.sub(lambda m: f"{m.group(1)}{_clean_math_content(m.group(2))}{m.group(1)}", text)
