@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -317,6 +318,33 @@ class _VisionQuotaExhausted(Exception):
     """
 
 
+_QUOTA_DETAIL_PATTERN = re.compile(
+    r"Limit (?P<limit>[\d,]+), Used (?P<used>[\d,]+), Requested (?P<requested>[\d,]+)\.?"
+    r".*?try again in (?P<retry>[^.]+?\.?\d*s)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _summarize_quota_error(message: str) -> str:
+    """Pulls the useful numbers out of Groq's error text and formats them
+    readably. Falls back to the raw message if the format doesn't match —
+    Groq could change their wording, and a failed parse shouldn't hide the
+    underlying error.
+    """
+    match = _QUOTA_DETAIL_PATTERN.search(message)
+    if not match:
+        return message
+    limit = int(match.group("limit").replace(",", ""))
+    used = int(match.group("used").replace(",", ""))
+    remaining = max(0, limit - used)
+    retry = match.group("retry").strip()
+    pct = (used / limit * 100) if limit else 0
+    return (
+        f"{used:,} / {limit:,} tokens used today ({pct:.1f}%), "
+        f"{remaining:,} remaining. Retry in {retry}."
+    )
+
+
 def _describe_image(client, model: str, blob: bytes, content_type: str) -> str | None:
     """Returns a description, "" if genuinely decorative (this gets cached --
     correctly never retried), or None if the call failed for an ordinary
@@ -345,7 +373,7 @@ def _describe_image(client, model: str, blob: bytes, content_type: str) -> str |
     except Exception as e:  # noqa: BLE001 - one bad image shouldn't abort ingestion
         message = str(e)
         if "rate_limit_exceeded" in message and ("per day" in message.lower() or "tpd" in message.lower()):
-            raise _VisionQuotaExhausted(message) from e
+            raise _VisionQuotaExhausted(_summarize_quota_error(message)) from e
         print(f"    ! image description failed (will retry next ingest): {e}", file=sys.stderr)
         return None
 
@@ -386,13 +414,12 @@ def describe_pptx_images(materials_dir: Path) -> list[Chunk]:
                     print(f"  describing image: {f.name}, slide {i}...")
                     try:
                         description = _describe_image(client, settings.vision_model, image.blob, image.content_type)
-                    except _VisionQuotaExhausted:
+                    except _VisionQuotaExhausted as e:
                         print(
                             "  ! Vision model's daily quota is exhausted. Stopping image "
                             "description for this run -- already-described images are saved "
-                            "(saved incrementally, not just at the end), and the rest will be "
-                            "picked up on a future ingest once the quota resets (per Groq's "
-                            "message, usually within ~24h)."
+                            "(saved incrementally, not just at the end).\n"
+                            f"    {e}"
                         )
                         return chunks
                     time.sleep(2)  # pace requests under the vision model's own rate limit
