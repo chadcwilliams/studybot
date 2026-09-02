@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     top_k: int = 8
     max_history_messages: int = 12  # ~6 turns of conversation
 
+    # --- Image description (for equations/diagrams embedded as pictures,
+    # invisible to plain text extraction) ---
+    describe_images: bool = True
+    vision_model: str = "qwen/qwen3.6-27b"
+    image_min_bytes: int = 3000  # skip tiny images (icons, decorative dots)
+    image_cache_path: Path = REPO_ROOT / "data" / "image_description_cache.json"
+
     # --- Paths ---
     materials_dir: Path = REPO_ROOT / "data" / "materials"
     index_dir: Path = REPO_ROOT / "data" / "vector_index"
