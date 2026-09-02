@@ -63,15 +63,15 @@ avoid or shorten.
 SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.replace("__COURSE_NAME__", settings.course_name)
 
 # A line containing only "[" (with optional whitespace) is the strict
-# signal for "this bracket starts a standalone equation block" — but a
-# markdown list bullet before it ("- [") breaks that strict match, since the
-# line then contains "- [" rather than just "[". Tolerating a short leading
-# prefix (whitespace, and optionally a list marker) catches that case too,
-# while still requiring the bracket be immediately followed by a line break
-# so an ordinary mid-sentence "[" is never touched.
-_BARE_BRACKET_MATH = re.compile(
-    r"^[ \t]*(?:[-*•]\s*)?\[[ \t]*$\n(.*?)\n^[ \t]*\][ \t]*$", re.MULTILINE | re.DOTALL
-)
+# signal for "this bracket starts a standalone equation block" -- but any
+# prefix before it (a bullet "- [", a numbered list marker "1. [", etc.)
+# breaks that strict match, and there are too many possible prefixes to
+# enumerate one at a time. The actual reliable signal isn't what precedes
+# the bracket, it's that the bracket is immediately followed by a line
+# break (distinguishing "starts a block" from an ordinary mid-sentence
+# "["), and likewise the closing "]" is immediately preceded by one --
+# regardless of anything else on either line.
+_BARE_BRACKET_MATH = re.compile(r"\[[ \t]*\n(.*?)\n[ \t]*\]", re.DOTALL)
 
 # The model has repeatedly inserted stray commas immediately inside LaTeX
 # braces (e.g. "\frac{SS}{,n-1,}" instead of "\frac{SS}{n-1}") — a comma
