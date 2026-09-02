@@ -79,6 +79,17 @@ debugging a bad answer:
   heading marker at all (not even a mis-tagged one) won't be detected, and
   will get absorbed into whichever real heading precedes them. If a specific
   policy seems to be missing from answers, this is the first thing to check.
+- **Embedded images in `.pptx` slides are described by a vision model at
+  ingestion time**, not left invisible. Equations and diagrams inserted as
+  pictures (common for anything typed in an equation editor or drawn as a
+  labeled figure) are otherwise completely invisible to text extraction —
+  the model would only see surrounding captions/labels and might fabricate
+  a plausible-looking but wrong formula to fill the gap. Descriptions are
+  cached by image content hash in `data/image_description_cache.json`
+  (commit this file — Render's free tier has no persistent disk, so without
+  it every redeploy would re-pay the vision-model cost for every image, not
+  just new ones). Set `DESCRIBE_IMAGES=false` to disable this if it's slowing
+  down ingestion more than it's worth for a particular course.
 
 ## Repo layout
 
