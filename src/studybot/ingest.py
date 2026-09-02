@@ -19,6 +19,7 @@ import json
 import re
 import sys
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +27,11 @@ from pypdf import PdfReader
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from docx import Document as DocxDocument
+
+# dwml is a nice light dependency (pure Python + stdlib xml), so it's a
+# normal top-level import rather than the lazy pattern used for the heavy
+# ML libraries elsewhere in this file.
+from dwml import omml
 
 from studybot.config import settings
 from studybot.store import StoredChunk, VectorStore
@@ -78,6 +84,52 @@ def extract_pdf(path: Path) -> list[tuple[str, str]]:
     return out
 
 
+def _text_with_math(docx_element) -> str:
+    """Combines a paragraph/cell's plain text with any embedded Word
+    equation objects (OMML). python-docx's .text property silently skips
+    over these entirely — unlike PowerPoint's embedded pictures (see
+    describe_pptx_images below), Word's equation editor produces real
+    structured math markup, not an image, so it converts to LaTeX directly
+    and exactly: no AI model, no cost, no ambiguity.
+
+    Note: this appends any equations found after the plain text rather than
+    interleaving them in exact document order. That matches the common
+    real-world pattern (a label like "SD =" followed by the equation) but
+    won't perfectly reconstruct a cell with text before AND after an
+    equation — good enough for formula sheets and tables without being a
+    full XML-order reconstruction.
+    """
+    plain = docx_element.text.strip()
+
+    xml = None
+    if hasattr(docx_element, "_tc"):
+        xml = docx_element._tc.xml
+    elif hasattr(docx_element, "_p"):
+        xml = docx_element._p.xml
+    if xml is None:
+        return plain
+
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return plain
+
+    latex_parts = []
+    for elem in root.iter(f"{omml.OMML_NS}oMath"):
+        try:
+            latex = omml.oMath2Latex(elem).latex
+        except Exception:  # noqa: BLE001 - a malformed equation shouldn't break extraction
+            continue
+        if latex and latex.strip():
+            latex_parts.append(latex.strip())
+
+    if not latex_parts:
+        return plain
+
+    math_text = " ".join(f"${l}$" for l in latex_parts)
+    return f"{plain} {math_text}".strip()
+
+
 def extract_docx(path: Path) -> list[tuple[str, str]]:
     doc = DocxDocument(path)
     out = []
@@ -109,7 +161,7 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
             sections.append((current_heading, list(current_paras)))
 
     for p in doc.paragraphs:
-        text = p.text.strip()
+        text = _text_with_math(p)
         if not text:
             continue
         if _is_real_heading(text, p.style.name):
@@ -136,7 +188,7 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
     # Row-level chunks are small enough to never get split, and keeping the
     # header attached preserves what each column means.
     for ti, table in enumerate(doc.tables, start=1):
-        rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+        rows = [[_text_with_math(cell) for cell in row.cells] for row in table.rows]
         rows = [r for r in rows if any(c for c in r)]
         if not rows:
             continue
@@ -164,6 +216,24 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
             continue
 
         header = rows[0]
+        # A row-0 cell containing "$" (our own LaTeX marker) or "=" is a
+        # reliable sign that row 0 is actual data (e.g. a formula), not a
+        # column-label header — a real header describes what KIND of data
+        # is in a column ("Date", "Topic"), it doesn't contain an instance
+        # of that data itself. Treating a headerless table's first row as a
+        # header wrongly prepends it onto every subsequent row.
+        has_real_header = not any("$" in c or "=" in c for c in header)
+
+        if not has_real_header:
+            # No column labels to attach — every row (including row 0) is
+            # its own standalone item (e.g. one row per named equation).
+            # Just join each row's own non-empty cells.
+            for ri, row in enumerate(rows, start=1):
+                cells = [c.strip() for c in row if c.strip()]
+                if cells:
+                    out.append((": ".join(cells), f"table {ti}, row {ri}"))
+            continue
+
         date_col = next((i for i, h in enumerate(header) if "date" in h.lower()), None)
 
         for ri, row in enumerate(rows[1:], start=2):
