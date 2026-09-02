@@ -216,13 +216,15 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
             continue
 
         header = rows[0]
-        # A row-0 cell containing "$" (our own LaTeX marker) or "=" is a
-        # reliable sign that row 0 is actual data (e.g. a formula), not a
-        # column-label header — a real header describes what KIND of data
-        # is in a column ("Date", "Topic"), it doesn't contain an instance
-        # of that data itself. Treating a headerless table's first row as a
-        # header wrongly prepends it onto every subsequent row.
-        has_real_header = not any("$" in c or "=" in c for c in header)
+        # A row-0 cell containing "$" (our own LaTeX marker) or "=" is one
+        # signal that row 0 is actual data, not a column-label header — but
+        # it can miss a plain-text formula with no "=" (e.g. "x - x̅"). A
+        # sturdier signal, grounded in what real formula sheets vs. schedule
+        # tables actually look like: every 2-column table we've seen turns
+        # out to be [name, formula] pairs with no header at all, while every
+        # table with a genuine header has had 3+ columns. So a 2-column
+        # table is never treated as having a header, regardless of content.
+        has_real_header = len(header) > 2 and not any("$" in c or "=" in c for c in header)
 
         if not has_real_header:
             # No column labels to attach — every row (including row 0) is
@@ -236,6 +238,14 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
 
         date_col = next((i for i, h in enumerate(header) if "date" in h.lower()), None)
 
+        # An empty "corner" cell in row 0 signals a matrix-style table:
+        # column 0 holds a ROW label (e.g. "Test Ratio") rather than being
+        # a data column with its own header -- common for formula tables
+        # comparing several scenarios side by side. Without this, the row
+        # label gets treated as a value paired with an empty header
+        # ("": Test Ratio") instead of the thing that ties the row together.
+        row_label_col = 0 if not header[0].strip() else None
+
         for ri, row in enumerate(rows[1:], start=2):
             # Build a natural "label: value" description using only the
             # non-empty cells in THIS row, instead of always repeating the
@@ -245,10 +255,22 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
             # that have nothing due — drowning out the rows that actually
             # matter. Omitting empty cells means a row only "sounds like"
             # what it actually contains.
-            pairs = [f"{header[i]}: {row[i]}" for i in range(len(row)) if row[i].strip()]
-            if not pairs:
-                continue
-            out.append((", ".join(pairs), f"table {ti}, row {ri}"))
+            if row_label_col is not None:
+                row_label = row[row_label_col].strip()
+                value_pairs = [
+                    f"{header[i]}: {row[i]}"
+                    for i in range(len(row))
+                    if i != row_label_col and row[i].strip()
+                ]
+                if not value_pairs or not row_label:
+                    continue
+                row_text = f"{row_label} — " + "; ".join(value_pairs)
+            else:
+                pairs = [f"{header[i]}: {row[i]}" for i in range(len(row)) if row[i].strip()]
+                if not pairs:
+                    continue
+                row_text = ", ".join(pairs)
+            out.append((row_text, f"table {ti}, row {ri}"))
 
         # A long schedule table with many near-identical rows (same columns,
         # slightly different dates/topics) is hard for embedding search to
@@ -364,7 +386,12 @@ _IMAGE_DESCRIBE_PROMPT = (
 )
 
 
-def _load_image_cache(path: Path) -> dict[str, str]:
+def _load_json_cache(path: Path) -> dict:
+    """Generic loader used for both the image-description cache and the
+    embedding cache — same shape (content hash -> cached result), same
+    failure handling (missing/corrupt file just means an empty cache, not
+    a crash).
+    """
     if not path.exists():
         return {}
     try:
@@ -374,7 +401,7 @@ def _load_image_cache(path: Path) -> dict[str, str]:
         return {}
 
 
-def _save_image_cache(path: Path, cache: dict[str, str]) -> None:
+def _save_json_cache(path: Path, cache: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cache, f, indent=2)
@@ -456,7 +483,7 @@ def describe_pptx_images(materials_dir: Path) -> list[Chunk]:
         return []
 
     client = Groq(api_key=settings.groq_api_key)
-    cache = _load_image_cache(settings.image_cache_path)
+    cache = _load_json_cache(settings.image_cache_path)
     chunks: list[Chunk] = []
 
     for f in materials_dir.rglob("*.pptx"):
@@ -499,7 +526,7 @@ def describe_pptx_images(materials_dir: Path) -> list[Chunk]:
                     # Save after EVERY new description, not just at the end -- if the
                     # process is interrupted (Ctrl+C, closed terminal, crash) partway
                     # through a long run, already-completed work isn't lost.
-                    _save_image_cache(settings.image_cache_path, cache)
+                    _save_json_cache(settings.image_cache_path, cache)
 
                 if description:
                     chunks.append(Chunk(text=description, source=f.name, location=f"slide {i} -- image"))
@@ -512,8 +539,6 @@ def describe_pptx_images(materials_dir: Path) -> list[Chunk]:
 # --------------------------------------------------------------------------
 
 def run() -> None:
-    from fastembed import TextEmbedding
-
     print(f"Reading materials from: {settings.materials_dir}")
     chunks = build_chunks(settings.materials_dir, settings.chunk_size, settings.chunk_overlap)
 
@@ -526,13 +551,35 @@ def run() -> None:
         print("Nothing to index. Exiting.")
         return
 
-    print(f"Built {len(chunks)} chunks. Loading embedding model "
-          f"'{settings.embedding_model}' (first run downloads it)...")
-    model = TextEmbedding(settings.embedding_model)
+    print(f"Built {len(chunks)} chunks.")
 
-    print("Embedding chunks...")
-    texts = [c.text for c in chunks]
-    embeddings = [e.tolist() for e in model.embed(texts)]
+    # Embeddings are cached by content hash too — unchanged text doesn't get
+    # re-embedded on every deploy. Embedding is CPU-bound and Render's free
+    # tier gives a fraction of a CPU core, so as the material set grows this
+    # step alone can take several minutes even though the text itself hasn't
+    # changed since the last deploy.
+    embed_cache = _load_json_cache(settings.embedding_cache_path)
+    hashes = [hashlib.sha256(c.text.encode("utf-8")).hexdigest() for c in chunks]
+    to_embed_idx = [i for i, h in enumerate(hashes) if h not in embed_cache]
+
+    if to_embed_idx:
+        print(f"{len(chunks) - len(to_embed_idx)} chunk(s) unchanged (cache hit), "
+              f"embedding {len(to_embed_idx)} new/changed chunk(s). Loading "
+              f"embedding model '{settings.embedding_model}' (first run downloads it)...")
+        from fastembed import TextEmbedding
+
+        model = TextEmbedding(settings.embedding_model)
+        new_texts = [chunks[i].text for i in to_embed_idx]
+        new_vectors = model.embed(new_texts)
+        for i, vec in zip(to_embed_idx, new_vectors):
+            # Rounding trims the cache file size substantially with no
+            # meaningful loss of retrieval precision.
+            embed_cache[hashes[i]] = [round(float(x), 6) for x in vec]
+        _save_json_cache(settings.embedding_cache_path, embed_cache)
+    else:
+        print("All chunks already embedded (cache hit) — skipping embedding model entirely.")
+
+    embeddings = [embed_cache[h] for h in hashes]
 
     store = VectorStore(settings.index_dir)
     stored_chunks = [StoredChunk(text=c.text, source=c.source, location=c.location) for c in chunks]
