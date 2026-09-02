@@ -309,11 +309,22 @@ def _save_image_cache(path: Path, cache: dict[str, str]) -> None:
         json.dump(cache, f, indent=2)
 
 
+class _VisionQuotaExhausted(Exception):
+    """Raised when a failure looks like a hard daily/token quota (not a
+    transient per-minute rate limit) -- signals the caller to stop trying
+    further images this run rather than failing on every remaining one
+    individually, since they'll all fail identically until the quota resets.
+    """
+
+
 def _describe_image(client, model: str, blob: bytes, content_type: str) -> str | None:
-    """Returns a description, "" if genuinely decorative (this gets cached —
-    correctly never retried), or None if the call itself failed (NOT cached,
-    so a transient failure like a rate limit gets retried on the next
-    ingest instead of being permanently mistaken for "decorative").
+    """Returns a description, "" if genuinely decorative (this gets cached --
+    correctly never retried), or None if the call failed for an ordinary
+    reason (NOT cached, so it gets retried on the next ingest instead of
+    being permanently mistaken for "decorative"). Raises
+    _VisionQuotaExhausted if the failure specifically looks like the daily
+    token quota being exhausted, rather than returning None for that case --
+    the caller needs to know to stop entirely, not just skip this one image.
     """
     data_url = f"data:{content_type};base64,{base64.b64encode(blob).decode()}"
     try:
@@ -332,6 +343,9 @@ def _describe_image(client, model: str, blob: bytes, content_type: str) -> str |
         text = response.choices[0].message.content.strip()
         return "" if text == "DECORATIVE_IMAGE_SKIP" else text
     except Exception as e:  # noqa: BLE001 - one bad image shouldn't abort ingestion
+        message = str(e)
+        if "rate_limit_exceeded" in message and ("per day" in message.lower() or "tpd" in message.lower()):
+            raise _VisionQuotaExhausted(message) from e
         print(f"    ! image description failed (will retry next ingest): {e}", file=sys.stderr)
         return None
 
@@ -340,12 +354,11 @@ def describe_pptx_images(materials_dir: Path) -> list[Chunk]:
     from groq import Groq
 
     if not settings.groq_api_key:
-        print("  ! GROQ_API_KEY not set — skipping image description.")
+        print("  ! GROQ_API_KEY not set -- skipping image description.")
         return []
 
     client = Groq(api_key=settings.groq_api_key)
     cache = _load_image_cache(settings.image_cache_path)
-    cache_dirty = False
     chunks: list[Chunk] = []
 
     for f in materials_dir.rglob("*.pptx"):
@@ -371,18 +384,28 @@ def describe_pptx_images(materials_dir: Path) -> list[Chunk]:
                     description = cache[image_hash]
                 else:
                     print(f"  describing image: {f.name}, slide {i}...")
-                    description = _describe_image(client, settings.vision_model, image.blob, image.content_type)
+                    try:
+                        description = _describe_image(client, settings.vision_model, image.blob, image.content_type)
+                    except _VisionQuotaExhausted:
+                        print(
+                            "  ! Vision model's daily quota is exhausted. Stopping image "
+                            "description for this run -- already-described images are saved "
+                            "(saved incrementally, not just at the end), and the rest will be "
+                            "picked up on a future ingest once the quota resets (per Groq's "
+                            "message, usually within ~24h)."
+                        )
+                        return chunks
                     time.sleep(2)  # pace requests under the vision model's own rate limit
                     if description is None:
-                        continue  # failed call — not cached, will retry next ingest
+                        continue  # failed call -- not cached, will retry next ingest
                     cache[image_hash] = description
-                    cache_dirty = True
+                    # Save after EVERY new description, not just at the end -- if the
+                    # process is interrupted (Ctrl+C, closed terminal, crash) partway
+                    # through a long run, already-completed work isn't lost.
+                    _save_image_cache(settings.image_cache_path, cache)
 
                 if description:
-                    chunks.append(Chunk(text=description, source=f.name, location=f"slide {i} — image"))
-
-    if cache_dirty:
-        _save_image_cache(settings.image_cache_path, cache)
+                    chunks.append(Chunk(text=description, source=f.name, location=f"slide {i} -- image"))
 
     return chunks
 
