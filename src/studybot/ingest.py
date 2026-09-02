@@ -312,6 +312,27 @@ def extract_docx(path: Path) -> list[tuple[str, str]]:
                 summary = f"Full list of everything under \"{due_header}\":\n" + "\n".join(sentences)
                 out.append((summary, f"table {ti} — {due_header} (summary)"))
 
+        # Same "scattered needle rows" problem shows up for exams/midterms —
+        # they typically live as VALUES inside a general "Topic" column
+        # (unlike due dates, which have a dedicated column), so this scans
+        # cell content across the whole row rather than the header. A broad
+        # question ("when are the exams") and a narrow one ("when are the
+        # midterms") can retrieve different individual rows depending on
+        # phrasing — one dense chunk listing all of them together answers
+        # either phrasing reliably instead of depending on which scattered
+        # row happens to rank in the top results for that specific wording.
+        exam_keywords = ("exam", "midterm", "final")
+        exam_entries = []
+        for row in rows[1:]:
+            if not any(any(kw in cell.lower() for kw in exam_keywords) for cell in row if cell.strip()):
+                continue
+            pairs = [f"{header[i]}: {row[i]}" for i in range(len(row)) if row[i].strip()]
+            if pairs:
+                exam_entries.append(", ".join(pairs))
+        if exam_entries:
+            summary = "Full list of exams/midterms/tests from the course schedule:\n" + "\n".join(exam_entries)
+            out.append((summary, f"table {ti} — exams (summary)"))
+
     return out
 
 
