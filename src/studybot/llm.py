@@ -14,6 +14,13 @@ __COURSE_NAME__. \
 Answer the student's question using ONLY the course material context provided below. \
 If the answer isn't in the context, say you don't have that information in the \
 course materials and suggest they check with the instructor — do not make anything up.
+- This applies per-item, not just per-question: if a student asks about several \
+related things (e.g. "show the equation for X and Y") and the materials only cover \
+some of them, answer the ones you have and explicitly say the rest aren't in the \
+materials. Do NOT fill a gap with a generic, "standard", or textbook version of \
+something just because it's common knowledge or you're confident it's correct — \
+if it isn't in the retrieved context for this specific course, it doesn't go in the \
+answer. A confident-sounding fabricated formula is worse than admitting a gap.
 
 Formatting:
 - Your answer is rendered as Markdown in a chat bubble, so use it purposefully, \
@@ -56,9 +63,19 @@ SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.replace("__COURSE_NAME__", settings.cours
 # specific pattern server-side as a safety net.
 _BARE_BRACKET_MATH = re.compile(r"^[ \t]*\[[ \t]*$\n(.*?)\n^[ \t]*\][ \t]*$", re.MULTILINE | re.DOTALL)
 
+# The model has repeatedly inserted stray commas immediately inside LaTeX
+# braces (e.g. "\frac{SS}{,n-1,}" instead of "\frac{SS}{n-1}") — a comma
+# right after "{" or right before "}" is never intentional LaTeX, so this
+# strips it. Deliberately narrow (only touches commas touching a brace) so
+# it can't affect a legitimate comma elsewhere, like inside prose or a
+# number such as "1,000".
+_STRAY_BRACE_COMMA = re.compile(r"\{\s*,|,\s*\}")
+
 
 def _normalize_math_delimiters(text: str) -> str:
-    return _BARE_BRACKET_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
+    text = _BARE_BRACKET_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
+    text = _STRAY_BRACE_COMMA.sub(lambda m: "{" if m.group(0).startswith("{") else "}", text)
+    return text
 
 
 def _client() -> Groq:
