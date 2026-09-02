@@ -94,6 +94,20 @@ _STRAY_BRACE_COMMA = re.compile(r"\{\s*,|,\s*\}")
 # as a literal, confusing semicolon in the output.
 _MATH_BLOCK = re.compile(r"(\${1,2})(.*?)\1", re.DOTALL)
 
+# The real root cause, found by inspecting the raw pre-Markdown response
+# text directly: the model actually writes STANDARD LaTeX delimiters --
+# \(...\) for inline math, \[...\] for display math -- which is correct
+# LaTeX. The problem is what happens next: Markdown's own escaping rules
+# treat \(, \), \[, \] as escaped punctuation, so marked.parse() silently
+# strips the backslash before KaTeX ever runs. Our frontend's KaTeX config
+# does look for "\[...\]", but by the time it sees the text, the backslash
+# is already gone -- it never had a chance. This runs on the RAW response
+# text here, before Markdown ever touches it, so the backslashes are still
+# intact and safely convertible to $ / $$, which Markdown does NOT escape
+# and which every other fix in this file already relies on surviving intact.
+_LATEX_INLINE_PAREN = re.compile(r"\\\((.*?)\\\)", re.DOTALL)
+_LATEX_DISPLAY_BRACKET = re.compile(r"\\\[(.*?)\\\]", re.DOTALL)
+
 # Shared signal for "this content is unambiguously LaTeX, not ordinary
 # prose": a backslash command (\bar, \sigma, \frac...) or a sub/superscript
 # marker. Covers BOTH braced ("X_{obs}") and unbraced ("X_O") subscript
@@ -153,6 +167,12 @@ def _clean_math_content(latex: str) -> str:
 
 
 def _normalize_math_delimiters(text: str) -> str:
+    # Run these first, on the raw text, while the backslashes are intact --
+    # \( \) and \[ \] are the real, standard delimiters the model actually
+    # writes; everything below is normalizing OTHER variants it sometimes
+    # falls back to instead.
+    text = _LATEX_DISPLAY_BRACKET.sub(lambda m: f"$${m.group(1).strip()}$$", text)
+    text = _LATEX_INLINE_PAREN.sub(lambda m: f"${m.group(1).strip()}$", text)
     text = _BACKTICK_MATH.sub(lambda m: f"$${m.group(1).strip()}$$", text)
     text = _PAREN_MATH.sub(lambda m: f"${m.group(1).strip()}$", text)
     text = _BARE_BRACKET_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
