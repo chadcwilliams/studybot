@@ -94,28 +94,36 @@ _STRAY_BRACE_COMMA = re.compile(r"\{\s*,|,\s*\}")
 # as a literal, confusing semicolon in the output.
 _MATH_BLOCK = re.compile(r"(\${1,2})(.*?)\1", re.DOTALL)
 
+# Shared signal for "this content is unambiguously LaTeX, not ordinary
+# prose": a backslash command (\bar, \sigma, \frac...) or a sub/superscript
+# marker. Covers BOTH braced ("X_{obs}") and unbraced ("X_O") subscript
+# syntax — LaTeX allows dropping the braces for a single character, and the
+# model uses that form often, so requiring braces alone misses it.
+_LATEX_SIGNAL = r"(?:\\[a-zA-Z]+|[_^][A-Za-z0-9{])"
+
 # The model sometimes wraps an equation in backticks (Markdown inline code)
 # instead of $ / $$, which renders it as a literal, unstyled code span
 # rather than math — and it can do this for ONE equation in a response while
 # correctly using $$ for another, so this isn't a global formatting choice
 # to reason about, just another delimiter variant to normalize. Only convert
-# backtick content that actually looks like LaTeX (a backslash command, or a
-# sub/superscript brace) so a genuine code snippet is never touched.
-_BACKTICK_MATH = re.compile(r"`([^`\n]*(?:\\[a-zA-Z]+|[_^]\{)[^`\n]*)`")
+# backtick content that actually looks like LaTeX so a genuine code snippet
+# is never touched.
+_BACKTICK_MATH = re.compile(r"`([^`\n]*" + _LATEX_SIGNAL + r"[^`\n]*)`")
 
 # The model also wraps small inline equations in plain parentheses instead
-# of $ — "(SD = 2.9700)", "(\bar{x}=5.0000)". This is riskier to normalize
-# than backticks or brackets: parentheses are extremely common in ordinary
-# prose, and something like "(s)" is a normal English plural marker
+# of $ — "(SD = 2.9700)", "(X_O)", "(X_O = X_T + X_E)". This is riskier to
+# normalize than backticks or brackets: parentheses are extremely common in
+# ordinary prose, and something like "(s)" is a normal English plural marker
 # ("student(s)") far more often than a stray variable reference. So this
 # only converts parenthetical content that's unambiguously math: either it
-# contains a LaTeX command (same signal as backticks), or its ENTIRE
-# content is just "short token = number" with nothing else — a shape that
-# essentially never occurs in ordinary prose. A bare symbol reference with
-# no "=" and no backslash, like "(n-1)", is deliberately left alone rather
-# than risk a false positive.
+# contains the LaTeX signal above (a command or a sub/superscript, braced or
+# not), or its ENTIRE content is just "short token = number" with nothing
+# else — a shape that essentially never occurs in ordinary prose. A bare
+# symbol reference with no "=", command, or subscript, like "(n-1)", is
+# deliberately left alone rather than risk a false positive.
 _PAREN_MATH = re.compile(
-    r"\((\\[a-zA-Z]+[^()\n]*|[A-Za-z][A-Za-z0-9_^{}\\]{0,20}\s*=\s*-?[\d.]+)\)"
+    r"\(([^()\n]*" + _LATEX_SIGNAL + r"[^()\n]*"
+    r"|[A-Za-z][A-Za-z0-9_^{}\\]{0,20}\s*=\s*-?[\d.]+)\)"
 )
 
 
@@ -126,6 +134,17 @@ def _clean_math_content(latex: str) -> str:
     # pattern. Matching semicolons on EITHER side in one pass covers all of
     # them (and is a harmless no-op on a plain, already-clean "=").
     latex = re.sub(r"\s*;*\s*=\s*;*\s*", " = ", latex)
+    # It also inserts a stray comma where it means implicit multiplication
+    # by juxtaposition (e.g. "b_y, X" instead of "b_y X" for b_y times X) --
+    # valid LaTeX just puts symbols next to each other for that, no comma.
+    # Narrowly scoped: only strips a comma directly between two bare tokens
+    # when it's NOT immediately followed by a token then a closing paren,
+    # so a genuine coordinate pair like "(x, y)" is left alone.
+    latex = re.sub(
+        r"(?<=[A-Za-z0-9}])\s*,\s*(?![A-Za-z\\][A-Za-z0-9_{}\\]*\s*\))(?=[A-Za-z\\])",
+        " ",
+        latex,
+    )
     # Same habit shows up as a dangling "," or ";" at the very end of an
     # expression (e.g. "SP/N," or "...N}} ;."). Strip it, but keep a real
     # trailing period if the model correctly ended the sentence with one.
