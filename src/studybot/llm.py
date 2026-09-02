@@ -91,6 +91,15 @@ _STRAY_BRACE_COMMA = re.compile(r"\{\s*,|,\s*\}")
 # as a literal, confusing semicolon in the output.
 _MATH_BLOCK = re.compile(r"(\${1,2})(.*?)\1", re.DOTALL)
 
+# The model sometimes wraps an equation in backticks (Markdown inline code)
+# instead of $ / $$, which renders it as a literal, unstyled code span
+# rather than math — and it can do this for ONE equation in a response while
+# correctly using $$ for another, so this isn't a global formatting choice
+# to reason about, just another delimiter variant to normalize. Only convert
+# backtick content that actually looks like LaTeX (a backslash command, or a
+# sub/superscript brace) so a genuine code snippet is never touched.
+_BACKTICK_MATH = re.compile(r"`([^`\n]*(?:\\[a-zA-Z]+|[_^]\{)[^`\n]*)`")
+
 
 def _clean_math_content(latex: str) -> str:
     latex = re.sub(r"\s*\n\s*", " ", latex).strip()
@@ -107,6 +116,7 @@ def _clean_math_content(latex: str) -> str:
 
 
 def _normalize_math_delimiters(text: str) -> str:
+    text = _BACKTICK_MATH.sub(lambda m: f"$${m.group(1).strip()}$$", text)
     text = _BARE_BRACKET_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
     text = _STRAY_BRACE_COMMA.sub(lambda m: "{" if m.group(0).startswith("{") else "}", text)
     text = _MATH_BLOCK.sub(lambda m: f"{m.group(1)}{_clean_math_content(m.group(2))}{m.group(1)}", text)
