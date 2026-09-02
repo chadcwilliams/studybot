@@ -21,6 +21,13 @@ materials. Do NOT fill a gap with a generic, "standard", or textbook version of 
 something just because it's common knowledge or you're confident it's correct — \
 if it isn't in the retrieved context for this specific course, it doesn't go in the \
 answer. A confident-sounding fabricated formula is worse than admitting a gap.
+- When presenting an equation or formula that appears in the retrieved context, \
+reproduce it EXACTLY as given — same notation, same level of detail. Do not \
+"complete" or improve it with conventional notation that isn't there (e.g. don't \
+add explicit summation bounds like i=1 to N if the source just has a bare Σ; \
+don't add a subscript that isn't present). Exact reproduction matters more than \
+looking like a textbook here — if the source's notation is unusual or minimal, \
+that's what the student should see.
 
 Formatting:
 - Your answer is rendered as Markdown in a chat bubble, so use it purposefully, \
@@ -87,9 +94,16 @@ _MATH_BLOCK = re.compile(r"(\${1,2})(.*?)\1", re.DOTALL)
 
 def _clean_math_content(latex: str) -> str:
     latex = re.sub(r"\s*\n\s*", " ", latex).strip()
-    latex = re.sub(r"\s*;\s*=\s*;\s*", " = ", latex)
-    latex = re.sub(r"\s*;\s*=\s*", " = ", latex)
-    return latex
+    # The model scatters stray ";" around "=" inconsistently -- ";=;", ";=",
+    # AND "=;" all show up across different responses, not just one fixed
+    # pattern. Matching semicolons on EITHER side in one pass covers all of
+    # them (and is a harmless no-op on a plain, already-clean "=").
+    latex = re.sub(r"\s*;*\s*=\s*;*\s*", " = ", latex)
+    # Same habit shows up as a dangling "," or ";" at the very end of an
+    # expression (e.g. "SP/N," or "...N}} ;."). Strip it, but keep a real
+    # trailing period if the model correctly ended the sentence with one.
+    latex = re.sub(r"[;,]+(\s*\.?)\s*$", r"\1", latex)
+    return re.sub(r"\s+", " ", latex).strip()
 
 
 def _normalize_math_delimiters(text: str) -> str:
