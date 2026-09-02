@@ -173,9 +173,30 @@ def _normalize_math_delimiters(text: str) -> str:
     # falls back to instead.
     text = _LATEX_DISPLAY_BRACKET.sub(lambda m: f"$${m.group(1).strip()}$$", text)
     text = _LATEX_INLINE_PAREN.sub(lambda m: f"${m.group(1).strip()}$", text)
+
+    # Mask already-$-wrapped content before the heuristic conversions below
+    # run. Without this, a parenthesized sub-expression that's already
+    # legitimately part of a correct equation -- e.g. "(x - \bar{x})" inside
+    # a larger \sum{...} -- gets wrongly wrapped in a SECOND, nested layer
+    # of $ by the backtick/paren/bracket heuristics, since they scan for
+    # LaTeX-looking content anywhere in the text with no awareness of
+    # what's already inside a math block. KaTeX can't parse nested $ pairs
+    # and shows the raw source as a visible red error instead of rendering.
+    protected: list[str] = []
+
+    def _stash(m: re.Match) -> str:
+        protected.append(m.group(0))
+        return f"\x00MATH{len(protected) - 1}\x00"
+
+    text = _MATH_BLOCK.sub(_stash, text)
+
     text = _BACKTICK_MATH.sub(lambda m: f"$${m.group(1).strip()}$$", text)
     text = _PAREN_MATH.sub(lambda m: f"${m.group(1).strip()}$", text)
     text = _BARE_BRACKET_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
+
+    for i, original in enumerate(protected):
+        text = text.replace(f"\x00MATH{i}\x00", original)
+
     text = _STRAY_BRACE_COMMA.sub(lambda m: "{" if m.group(0).startswith("{") else "}", text)
     text = _MATH_BLOCK.sub(lambda m: f"{m.group(1)}{_clean_math_content(m.group(2))}{m.group(1)}", text)
     return text
