@@ -71,10 +71,31 @@ _BARE_BRACKET_MATH = re.compile(r"^[ \t]*\[[ \t]*$\n(.*?)\n^[ \t]*\][ \t]*$", re
 # number such as "1,000".
 _STRAY_BRACE_COMMA = re.compile(r"\{\s*,|,\s*\}")
 
+# Once a math block's delimiters are correct, its CONTENT can still break
+# rendering: marked.js (breaks:true) converts a literal newline into a <br>
+# tag before KaTeX ever runs, which splits a multi-line equation (e.g. a
+# chain of equalities across several lines) across separate DOM text nodes
+# — KaTeX's delimiter matching can't find a closing "$$" that isn't in the
+# same text node, so the whole block silently fails to render at all, even
+# though the delimiters themselves are exactly correct. Collapsing internal
+# newlines to spaces before the text ever reaches the browser sidesteps
+# this entirely. Separately, the model has a persistent habit of writing
+# "X ;=; Y" instead of "X = Y" — harmless to KaTeX's parser, but it renders
+# as a literal, confusing semicolon in the output.
+_MATH_BLOCK = re.compile(r"(\${1,2})(.*?)\1", re.DOTALL)
+
+
+def _clean_math_content(latex: str) -> str:
+    latex = re.sub(r"\s*\n\s*", " ", latex).strip()
+    latex = re.sub(r"\s*;\s*=\s*;\s*", " = ", latex)
+    latex = re.sub(r"\s*;\s*=\s*", " = ", latex)
+    return latex
+
 
 def _normalize_math_delimiters(text: str) -> str:
     text = _BARE_BRACKET_MATH.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
     text = _STRAY_BRACE_COMMA.sub(lambda m: "{" if m.group(0).startswith("{") else "}", text)
+    text = _MATH_BLOCK.sub(lambda m: f"{m.group(1)}{_clean_math_content(m.group(2))}{m.group(1)}", text)
     return text
 
 
