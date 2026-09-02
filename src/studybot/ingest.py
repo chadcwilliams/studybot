@@ -13,12 +13,17 @@ the index from scratch each time, so it's always safe to re-run.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from pypdf import PdfReader
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from docx import Document as DocxDocument
 
 from studybot.config import settings
@@ -272,6 +277,117 @@ def build_chunks(materials_dir: Path, chunk_size: int, chunk_overlap: int) -> li
 
 
 # --------------------------------------------------------------------------
+# Image description (equations/diagrams embedded as pictures — invisible to
+# plain text extraction, so a vision model transcribes/describes them once
+# at ingestion time, not per student question).
+# --------------------------------------------------------------------------
+
+_IMAGE_DESCRIBE_PROMPT = (
+    "This image is from a course slide. If it shows a mathematical equation, "
+    "formula, or notation, transcribe it exactly and completely using LaTeX "
+    "($ for inline, $$ for standalone). If it's a diagram, chart, graph, or "
+    "labeled figure, describe its content and every label precisely enough "
+    "that someone could answer questions about it without seeing the image. "
+    "If it's purely decorative (a logo, background texture, or photo with no "
+    "course-relevant information), respond with exactly: DECORATIVE_IMAGE_SKIP"
+)
+
+
+def _load_image_cache(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_image_cache(path: Path, cache: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=2)
+
+
+def _describe_image(client, model: str, blob: bytes, content_type: str) -> str | None:
+    """Returns a description, "" if genuinely decorative (this gets cached —
+    correctly never retried), or None if the call itself failed (NOT cached,
+    so a transient failure like a rate limit gets retried on the next
+    ingest instead of being permanently mistaken for "decorative").
+    """
+    data_url = f"data:{content_type};base64,{base64.b64encode(blob).decode()}"
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            temperature=0.1,
+            max_tokens=500,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": _IMAGE_DESCRIBE_PROMPT},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }],
+        )
+        text = response.choices[0].message.content.strip()
+        return "" if text == "DECORATIVE_IMAGE_SKIP" else text
+    except Exception as e:  # noqa: BLE001 - one bad image shouldn't abort ingestion
+        print(f"    ! image description failed (will retry next ingest): {e}", file=sys.stderr)
+        return None
+
+
+def describe_pptx_images(materials_dir: Path) -> list[Chunk]:
+    from groq import Groq
+
+    if not settings.groq_api_key:
+        print("  ! GROQ_API_KEY not set — skipping image description.")
+        return []
+
+    client = Groq(api_key=settings.groq_api_key)
+    cache = _load_image_cache(settings.image_cache_path)
+    cache_dirty = False
+    chunks: list[Chunk] = []
+
+    for f in materials_dir.rglob("*.pptx"):
+        try:
+            prs = Presentation(f)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! Failed to open {f.name} for image scan: {e}", file=sys.stderr)
+            continue
+
+        for i, slide in enumerate(prs.slides, start=1):
+            for shape in slide.shapes:
+                if shape.shape_type != MSO_SHAPE_TYPE.PICTURE:
+                    continue
+                try:
+                    image = shape.image
+                except Exception:  # noqa: BLE001 - some picture shapes have no accessible image data
+                    continue
+                if len(image.blob) < settings.image_min_bytes:
+                    continue  # almost certainly an icon or decorative dot
+
+                image_hash = hashlib.sha256(image.blob).hexdigest()
+                if image_hash in cache:
+                    description = cache[image_hash]
+                else:
+                    print(f"  describing image: {f.name}, slide {i}...")
+                    description = _describe_image(client, settings.vision_model, image.blob, image.content_type)
+                    time.sleep(2)  # pace requests under the vision model's own rate limit
+                    if description is None:
+                        continue  # failed call — not cached, will retry next ingest
+                    cache[image_hash] = description
+                    cache_dirty = True
+
+                if description:
+                    chunks.append(Chunk(text=description, source=f.name, location=f"slide {i} — image"))
+
+    if cache_dirty:
+        _save_image_cache(settings.image_cache_path, cache)
+
+    return chunks
+
+
+# --------------------------------------------------------------------------
 # Embedding + storage
 # --------------------------------------------------------------------------
 
@@ -280,6 +396,11 @@ def run() -> None:
 
     print(f"Reading materials from: {settings.materials_dir}")
     chunks = build_chunks(settings.materials_dir, settings.chunk_size, settings.chunk_overlap)
+
+    if settings.describe_images:
+        print("Describing embedded images (cached by content hash — only new "
+              "images cost a vision-model call)...")
+        chunks.extend(describe_pptx_images(settings.materials_dir))
 
     if not chunks:
         print("Nothing to index. Exiting.")
